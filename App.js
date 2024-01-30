@@ -3,6 +3,7 @@ import { useRef, useState } from "react";
 import {
   Alert,
   Button,
+  Dimensions,
   Image,
   ScrollView,
   StyleSheet,
@@ -15,13 +16,98 @@ import QRCode from "react-native-qrcode-svg";
 import * as Sharing from "expo-sharing";
 import * as FileSystem from "expo-file-system";
 import * as DocumentPicker from "expo-document-picker";
+import TestPopUp from "./TestPopUp";
+import * as ImagePicker from "expo-image-picker";
+import * as ImageManipulator from "expo-image-manipulator";
+import mime from "mime";
+import axios from "axios";
+import { Button as MaterialButton } from "react-native-paper";
 
+const { width } = Dimensions.get("screen");
+const { height } = Dimensions.get("screen");
 export default function App() {
   const [selectedItem, setSelectedItem] = useState("");
   const [imgPressed, setImgPressed] = useState(false);
   const [textVal, setTextVal] = useState("");
+  const [img, setImg] = useState("");
+  const [loading, setLoading] = useState(false);
 
   const qrcodeRef = useRef();
+
+  const pickImage = async (maxWidth, maxHeight) => {
+    try {
+      const res = await ImagePicker.launchImageLibraryAsync({
+        mediaTypes: ImagePicker.MediaTypeOptions.Images,
+        allowsEditing: true,
+        aspect: [3, 4],
+        quality: 0.8,
+      });
+      if (res.cancelled) {
+        return {};
+      }
+      // resize image if too large
+      const resizedImage =
+        res.height > maxHeight && res.width > maxWidth
+          ? await ImageManipulator.manipulateAsync(
+              res.uri,
+              [{ resize: { width: maxWidth, height: maxHeight } }],
+              { compress: 1 }
+            )
+          : res;
+
+      return resizedImage;
+    } catch (error) {
+      if (error.message !== "canceled") throw new Error(error);
+    }
+  };
+
+  const IMGBBuploadImage = async (image) => {
+    const newImageUri = "file:///" + image.split("file:/").join("");
+
+    const formData = new FormData();
+    formData.append("image", {
+      uri: newImageUri,
+      type: mime.getType(newImageUri),
+      name: newImageUri.split("/").pop(),
+    });
+    formData.append("key", "b6039e9bcebd091e652fb70408d6bc25");
+    try {
+      const { data } = await axios.post(
+        "https://api.imgbb.com/1/upload",
+        formData,
+        {
+          headers: {
+            "Content-Type": "multipart/form-data",
+          },
+        }
+      );
+      if (!data) {
+        return { error: "There was an error" };
+      }
+      return { url: data.data.url };
+    } catch (error) {
+      return { error: error.message };
+    }
+  };
+
+  const handlePickImage = async () => {
+    try {
+      const { uri } = await pickImage(750, 1000);
+      uri && setLoading(true);
+      const { url, error: imageError } = await IMGBBuploadImage(uri);
+      if (imageError) {
+        Alert.alert("Error", "There was an error");
+        return;
+      } else {
+        setImg(uri);
+        setTextVal(url);
+      }
+    } catch (error) {
+      //
+    } finally {
+      setLoading(false);
+    }
+  };
 
   const cardPressed = (val) => {
     setSelectedItem(val);
@@ -91,6 +177,7 @@ export default function App() {
       }
     }
   };
+  let imgurl = "https://i.ibb.co/pj6bgwy/cover-13.jpg";
   return (
     <View style={styles.container}>
       <Text
@@ -207,16 +294,64 @@ export default function App() {
                 onChangeText={(val) => setTextVal(val)}
               />
             )}
+            {!imgPressed && (
+              <QRCode
+                value={textVal || "Enter Text"}
+                size={190}
+                getRef={qrcodeRef}
+              />
+            )}
+            {imgPressed && (
+              <View style={styles.imgcontainer}>
+                <View
+                  style={{ width: (width * 50) / 100, alignSelf: "center" }}
+                >
+                  {img && (
+                    <Image
+                      style={{
+                        width: (width * 40) / 100,
+                        height: (width * 40) / 100,
+                      }}
+                      source={{
+                        uri: img,
+                      }}
+                    />
+                  )}
+                  {!img && (
+                    <View
+                      style={{
+                        width: (width * 40) / 100,
+                        height: (width * 40) / 100,
+                        borderWidth: 1,
+                        borderColor: "silver",
+                        borderRadius: 6,
+                        justifyContent: "center",
+                      }}
+                    >
+                      <View style={{ padding: 15 }}>
+                        <MaterialButton
+                          onPress={handlePickImage}
+                          loading={loading}
+                          mode="contained"
+                        >
+                          Upload
+                        </MaterialButton>
+                      </View>
+                    </View>
+                  )}
+                </View>
 
-            <QRCode
-              value={
-                imgPressed
-                  ? "https://i.ibb.co/pj6bgwy/cover-13.jpg"
-                  : textVal || "Enter Text"
-              }
-              size={190}
-              getRef={qrcodeRef}
-            />
+                <View
+                  style={{ width: (width * 50) / 100, alignSelf: "center" }}
+                >
+                  <QRCode
+                    value={textVal || "No Text"}
+                    size={(width * 40) / 100}
+                    getRef={qrcodeRef}
+                  />
+                </View>
+              </View>
+            )}
 
             <View style={styles.button}>
               <Button title="Share Qr Code" onPress={shareHandlePress} />
@@ -234,7 +369,13 @@ export default function App() {
             </View>
           </View>
         )}
+        {img && (
+          <View style={styles.button}>
+            <Button title="Cancel" onPress={() => setImg("")} />
+          </View>
+        )}
       </ScrollView>
+      {/*<TestPopUp />*/}
     </View>
   );
 }
@@ -301,6 +442,11 @@ const styles = StyleSheet.create({
   },
   button: {
     marginTop: 30,
+    width: "100%",
+  },
+  imgcontainer: {
+    display: "flex",
+    flexDirection: "row",
     width: "100%",
   },
 });
